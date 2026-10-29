@@ -18,6 +18,7 @@
 
     <modules>
         <module>tenantpulse-core</module>
+        <module>tenantpulse-server</module>
     </modules>
 
     <dependencyManagement>
