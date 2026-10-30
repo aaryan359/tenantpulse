@@ -4,14 +4,16 @@ import com.tenantpulse.core.model.ChangeSet;
 import com.tenantpulse.core.model.Scope;
 import com.tenantpulse.core.model.ScopeLevel;
 import com.tenantpulse.core.model.SettingChange;
+import com.tenantpulse.server.service.InvalidRequestException;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The JSON body of {@code POST /change-sets}. A change with no {@code value} removes that override.
+ * The JSON body of {@code POST /v1/change-sets}. A change with no {@code value} removes that override. There is no
+ * author field: the author is always the authenticated caller, so it cannot be forged.
  */
-public record ChangeSetRequest(String author, String reason, String idempotencyKey, List<ChangeRequest> changes) {
+public record ChangeSetRequest(String reason, String idempotencyKey, List<ChangeRequest> changes) {
 
     public record ChangeRequest(String key, ScopeRequest scope, String value) {
     }
@@ -19,16 +21,21 @@ public record ChangeSetRequest(String author, String reason, String idempotencyK
     public record ScopeRequest(ScopeLevel level, String clientId, String officeId, String shiftId) {
     }
 
-    /** Converts to the domain object; throws IllegalArgumentException for a malformed change. */
-    public ChangeSet toChangeSet() {
+    /** Converts to the domain object; throws InvalidRequestException for a malformed change. */
+    public ChangeSet toChangeSet(String author) {
         List<SettingChange> converted = new ArrayList<>();
         if (changes != null) {
             for (ChangeRequest change : changes) {
                 if (change == null || change.key() == null || change.scope() == null || change.scope().level() == null) {
-                    throw new IllegalArgumentException("each change needs a key and a scope with a level");
+                    throw new InvalidRequestException("each change needs a key and a scope with a level");
                 }
                 ScopeRequest s = change.scope();
-                Scope scope = new Scope(s.level(), s.clientId(), s.officeId(), s.shiftId());
+                Scope scope;
+                try {
+                    scope = new Scope(s.level(), s.clientId(), s.officeId(), s.shiftId());
+                } catch (IllegalArgumentException e) {
+                    throw new InvalidRequestException(e.getMessage());
+                }
                 converted.add(new SettingChange(change.key(), scope, change.value()));
             }
         }
