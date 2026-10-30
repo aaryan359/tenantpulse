@@ -17,8 +17,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -34,7 +32,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class EndToEndPropagationTest {
 
     private static final HttpClient HTTP = HttpClient.newHttpClient();
-    private static final Pattern TOKEN = Pattern.compile("\"token\"\\s*:\\s*\"([^\"]+)\"");
 
     @LocalServerPort
     int port;
@@ -44,13 +41,7 @@ class EndToEndPropagationTest {
     }
 
     private String token(String subject, String role, String tenant) throws Exception {
-        HttpResponse<String> response = HTTP.send(HttpRequest.newBuilder(URI.create(base() + "/dev/token"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString("{\"subject\":\"" + subject + "\",\"role\":\"" + role
-                        + "\",\"tenant\":\"" + tenant + "\"}")).build(), HttpResponse.BodyHandlers.ofString());
-        Matcher matcher = TOKEN.matcher(response.body());
-        assertTrue(matcher.find());
-        return matcher.group(1);
+        return DevTokens.fetch(base(), subject, role, tenant);
     }
 
     private int publishCutoff(String operatorToken, String tenant, String office, int minutes) throws Exception {

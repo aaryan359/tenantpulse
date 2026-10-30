@@ -1,5 +1,6 @@
 package com.tenantpulse.server.service;
 
+import com.tenantpulse.server.DevTokens;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -13,11 +14,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** A client that vanishes must not leak its push connection: the heartbeat finds it and it is removed. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -34,17 +32,13 @@ class ConnectionCleanupTest {
 
     @Test
     void aDroppedClientsConnectionIsRemovedByTheHeartbeat() throws Exception {
-        HttpClient http = HttpClient.newHttpClient();
-        HttpResponse<String> tokenResponse = http.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/dev/token"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString("{\"subject\":\"svc\",\"role\":\"SERVICE\",\"tenant\":\"cleanup\"}"))
-                .build(), HttpResponse.BodyHandlers.ofString());
-        Matcher token = Pattern.compile("\"token\"\\s*:\\s*\"([^\"]+)\"").matcher(tokenResponse.body());
-        assertTrue(token.find());
+        String base = "http://localhost:" + port;
+        String token = DevTokens.fetch(base, "svc", "SERVICE", "cleanup");
 
         int before = broadcaster.connectionCount();
-        HttpResponse<InputStream> stream = http.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/v1/stream"))
-                .header("Authorization", "Bearer " + token.group(1)).build(), HttpResponse.BodyHandlers.ofInputStream());
+        HttpResponse<InputStream> stream = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(URI.create(base + "/v1/stream")).header("Authorization", "Bearer " + token).build(),
+                HttpResponse.BodyHandlers.ofInputStream());
         assertEquals(200, stream.statusCode());
         waitUntil(() -> broadcaster.connectionCount() == before + 1, "the connection to be registered");
 
