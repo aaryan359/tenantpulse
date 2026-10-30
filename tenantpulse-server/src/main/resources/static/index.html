@@ -18,7 +18,7 @@
   #banner { padding:10px 24px; background:#fee2e2; color:#991b1b; font-weight:600; }
   main { display:grid; grid-template-columns:minmax(320px, 420px) 1fr; gap:16px; padding:16px 24px; }
   .panel { background:#fff; border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
-  .wide { grid-column:1 / -1; }
+  .stack { display:flex; flex-direction:column; gap:16px; min-width:0; }
   label { display:block; margin:8px 0 2px; font-size:13px; color:var(--muted); }
   input, select, button { font:inherit; padding:6px 8px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; }
   input, select { width:100%; }
@@ -38,8 +38,8 @@
   .badge.CLIENT { background:#fef3c7; color:#92400e; } .badge.GLOBAL { background:#dcfce7; color:#166534; }
   @keyframes flash { from { background:#bbf7d0; } to { background:#fff; } }
   .card.flash { animation:flash 1.4s ease-out; }
-  pre { margin:0; padding:10px; background:#0f172a; color:#e2e8f0; border-radius:8px; max-height:260px; overflow:auto; font-size:13px; white-space:pre-wrap; }
-  ol { margin:0; padding:0; list-style:none; max-height:240px; overflow:auto; font:13px/1.6 ui-monospace, Menlo, monospace; }
+  pre { margin:0; padding:10px; background:#0f172a; color:#e2e8f0; border-radius:8px; max-height:210px; overflow:auto; font-size:13px; white-space:pre-wrap; }
+  ol { margin:0; padding:0; list-style:none; max-height:190px; overflow:auto; font:13px/1.6 ui-monospace, Menlo, monospace; }
   ol li span { color:var(--muted); margin-right:8px; } ol li.good { color:#166534; } ol li.bad { color:#991b1b; } ol li.push { color:#1d4ed8; }
 </style>
 </head>
@@ -88,6 +88,7 @@
     </div>
   </section>
 
+  <div class="stack">
   <section class="panel">
     <h2>What a service sees <span class="muted">(read from its own memory, no call to the server)</span></h2>
     <div class="row">
@@ -98,8 +99,9 @@
     <div class="muted" id="info"></div>
   </section>
 
-  <section class="panel wide"><h2>Request and response</h2><pre id="result">Sign in, then publish a change.</pre></section>
-  <section class="panel wide"><h2>Live log</h2><ol id="log"></ol></section>
+  <section class="panel"><h2>Live log</h2><ol id="log"></ol></section>
+  <section class="panel"><h2>Request and response</h2><pre id="result">Sign in, then publish a change.</pre></section>
+  </div>
 </main>
 
 <script>
@@ -109,7 +111,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let session = null;      // { token, tenant, abort }
 let snap = null;         // the local copy: { version, definitions, overrides }
-let online = false, pushUp = false, lastContact = 0;
+let online = false, pushUp = false;
 let pending = null;      // a change published from this page, timed until it is visible
 let lastRollout = null;
 let pulling = Promise.resolve();
@@ -134,11 +136,18 @@ function show(method, path, body, status, response) {
 const auth = () => ({ Authorization: 'Bearer ' + session.token });
 
 async function call(method, path, body) {
-  const res = await fetch(path, {
-    method,
-    headers: { ...auth(), ...(body ? { 'Content-Type': 'application/json' } : {}) },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(path, {
+      method,
+      headers: { ...auth(), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (e) {
+    const unreachable = { error: 'unreachable', message: 'the server cannot be reached' };
+    show(method, path, body, 'no response', unreachable);
+    return { ok: false, status: 0, json: unreachable };
+  }
   const json = await res.json().catch(() => ({}));
   show(method, path, body, res.status, json);
   return { ok: res.ok, status: res.status, json };
@@ -254,7 +263,6 @@ async function check(abort) {
 }
 
 function markOnline() {
-  lastContact = Date.now();
   if (!online) { online = true; log('server reachable: in sync at v' + snap.version, 'good'); pull(); }
   renderStatus();
 }
@@ -267,7 +275,7 @@ function setPush(up) { pushUp = up; renderStatus(); }
 // ---------------------------------------------------------------- drawing
 function renderStatus() {
   const pill = $('status');
-  if (!session) { pill.textContent = 'signed out'; pill.className = 'pill'; return; }
+  if (!session || !snap) { pill.textContent = 'signed out'; pill.className = 'pill'; return; }
   pill.textContent = (online ? 'server up' : 'server down') + ' · push ' + (pushUp ? 'connected' : 'off') + ' · v' + snap.version;
   pill.className = 'pill ' + (online ? 'ok' : 'bad');
   const banner = $('banner');
@@ -390,7 +398,6 @@ async function signIn() {
   render();
   streamLoop(session.abort);
   check(session.abort);
-  setInterval(() => session && renderStatus(), 1000);
 }
 
 $('signin').onclick = () => signIn().catch((e) => log('sign-in failed: ' + e.message, 'bad'));
@@ -401,6 +408,8 @@ $('preview').onclick = () => rollback(true);
 $('rollback').onclick = () => rollback(false);
 $('key').onchange = updateHint;
 $('watch').onchange = $('watchShift').oninput = render;
+
+setInterval(renderStatus, 1000);
 
 const tenantParam = new URLSearchParams(location.search).get('tenant');
 if (tenantParam) { $('tenant').value = tenantParam; $('signin').click(); }   // ?tenant=acme signs in straight away
