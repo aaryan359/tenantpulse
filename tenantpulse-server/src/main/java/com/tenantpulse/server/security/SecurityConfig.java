@@ -55,6 +55,7 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health/**", "/actuator/health", "/actuator/info",
                                 "/actuator/prometheus").permitAll()
                         .requestMatchers("/dev/token").permitAll()
+                        .requestMatchers("/", "/index.html").permitAll()   // the demo console page; it holds no data
                         .requestMatchers(HttpMethod.GET, "/v1/**").hasAnyRole("SERVICE", "EMPLOYEE", "OPERATOR", "ADMIN")
                         .requestMatchers("/v1/**").hasAnyRole("OPERATOR", "ADMIN")
                         .anyRequest().denyAll())
