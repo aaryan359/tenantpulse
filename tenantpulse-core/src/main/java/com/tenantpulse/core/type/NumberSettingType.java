@@ -1,5 +1,7 @@
 package com.tenantpulse.core.type;
 
+import java.util.Map;
+
 /** A whole number within an inclusive range. */
 public final class NumberSettingType extends SettingValueType<Long> {
 
@@ -18,6 +20,16 @@ public final class NumberSettingType extends SettingValueType<Long> {
     @Override
     public String name() {
         return "number";
+    }
+
+    @Override
+    public String kind() {
+        return "number";
+    }
+
+    @Override
+    public Map<String, String> params() {
+        return Map.of("min", Long.toString(min), "max", Long.toString(max));
     }
 
     @Override

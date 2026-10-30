@@ -30,4 +30,10 @@ public record SettingDefinition(String key, SettingValueType<?> type, Object def
     public Object parse(String rawValue) {
         return type.parse(rawValue);
     }
+
+    /** Canonical text form of a value of this setting's type. */
+    @SuppressWarnings("unchecked")
+    public String format(Object value) {
+        return ((SettingValueType<Object>) type).format(value);
+    }
 }

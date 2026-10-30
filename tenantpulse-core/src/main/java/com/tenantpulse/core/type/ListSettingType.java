@@ -3,6 +3,7 @@ package com.tenantpulse.core.type;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -21,6 +22,9 @@ public final class ListSettingType extends SettingValueType<List<String>> {
         if (maxSize < 1) {
             throw new IllegalArgumentException("maxSize must be at least 1");
         }
+        if (allowedElements.stream().anyMatch(v -> v.isBlank() || v.contains(","))) {
+            throw new IllegalArgumentException("list elements must be non-blank and contain no commas");
+        }
         this.allowedElements = Set.copyOf(allowedElements);
         this.maxSize = maxSize;
     }
@@ -28,6 +32,17 @@ public final class ListSettingType extends SettingValueType<List<String>> {
     @Override
     public String name() {
         return "list";
+    }
+
+    @Override
+    public String kind() {
+        return "list";
+    }
+
+    @Override
+    public Map<String, String> params() {
+        return Map.of("allowed", String.join(",", new TreeSet<>(allowedElements)),
+                "maxSize", Integer.toString(maxSize));
     }
 
     @Override

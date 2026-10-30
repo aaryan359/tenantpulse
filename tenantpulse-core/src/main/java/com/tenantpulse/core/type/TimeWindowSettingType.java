@@ -1,6 +1,7 @@
 package com.tenantpulse.core.type;
 
 import java.time.LocalTime;
+import java.util.Map;
 
 /**
  * A daily window written {@code HH:mm-HH:mm}. A window whose end is not after its start is
@@ -19,6 +20,16 @@ public final class TimeWindowSettingType extends SettingValueType<TimeWindow> {
     @Override
     public String name() {
         return "time window";
+    }
+
+    @Override
+    public String kind() {
+        return "time_window";
+    }
+
+    @Override
+    public Map<String, String> params() {
+        return Map.of("allowOvernight", Boolean.toString(allowOvernight));
     }
 
     @Override

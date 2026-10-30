@@ -1,6 +1,7 @@
 package com.tenantpulse.core.type;
 
 import java.time.Duration;
+import java.util.Map;
 
 /** An ISO-8601 duration such as {@code PT30M}, within an inclusive range. */
 public final class DurationSettingType extends SettingValueType<Duration> {
@@ -20,6 +21,16 @@ public final class DurationSettingType extends SettingValueType<Duration> {
     @Override
     public String name() {
         return "duration";
+    }
+
+    @Override
+    public String kind() {
+        return "duration";
+    }
+
+    @Override
+    public Map<String, String> params() {
+        return Map.of("min", min.toString(), "max", max.toString());
     }
 
     @Override

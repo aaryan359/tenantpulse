@@ -2,6 +2,7 @@ package com.tenantpulse.core.type;
 
 import com.tenantpulse.core.exception.InvalidSettingValueException;
 
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -23,8 +24,14 @@ public abstract class SettingValueType<T> {
         return valueClass;
     }
 
-    /** Short name used in error messages and the API, e.g. {@code duration}. */
+    /** Short name used in error messages, e.g. {@code duration}. */
     public abstract String name();
+
+    /** Stable identifier used on the wire; {@link SettingTypes#create} turns it back into a type. */
+    public abstract String kind();
+
+    /** The rules of this type as text, enough for {@link SettingTypes#create} to rebuild it. */
+    public abstract Map<String, String> params();
 
     /** Parses and validates; throws {@link InvalidSettingValueException} on any problem. */
     public final T parse(String raw) {
