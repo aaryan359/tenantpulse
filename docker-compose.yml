@@ -1,0 +1,48 @@
+# One command starts everything:  docker compose up --build
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tenantpulse-postgres
+    environment:
+      POSTGRES_DB: tenantpulse
+      POSTGRES_USER: tenantpulse
+      POSTGRES_PASSWORD: tenantpulse
+    ports:
+      # host port 5436 -> container 5432 (5432, 5433 and 5450 are used by other databases on this machine)
+      - "127.0.0.1:${TENANTPULSE_DB_PORT:-5436}:5432"
+    volumes:
+      - tenantpulse-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tenantpulse -d tenantpulse"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  server:
+    build:
+      context: .
+      dockerfile: tenantpulse-server/Dockerfile
+    container_name: tenantpulse-server
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      TENANTPULSE_DB_URL: jdbc:postgresql://postgres:5432/tenantpulse
+      TENANTPULSE_DB_USER: tenantpulse
+      TENANTPULSE_DB_PASSWORD: tenantpulse
+      TENANTPULSE_JWT_SECRET: ${TENANTPULSE_JWT_SECRET:-dev-only-secret-change-me-dev-only-secret-change-me}
+      # Demo only: lets you mint tokens with POST /dev/token. Turn off for anything real.
+      TENANTPULSE_DEV_TOKEN_ENDPOINT: ${TENANTPULSE_DEV_TOKEN_ENDPOINT:-true}
+    ports:
+      - "${TENANTPULSE_PORT:-8080}:8080"
+    healthcheck:
+      # bash, not sh: /dev/tcp is a bash feature, and the image has no curl or wget
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080 && printf 'GET /actuator/health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  tenantpulse-pgdata:
