@@ -1,0 +1,47 @@
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  application:
+    name: tenantpulse-server
+  threads:
+    virtual:
+      enabled: true
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  datasource:
+    url: ${TENANTPULSE_DB_URL:jdbc:postgresql://localhost:5436/tenantpulse}
+    username: ${TENANTPULSE_DB_USER:tenantpulse}
+    password: ${TENANTPULSE_DB_PASSWORD:tenantpulse}
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 3000
+  flyway:
+    enabled: true
+
+tenantpulse:
+  security:
+    # Set TENANTPULSE_JWT_SECRET (32+ bytes) in any real deployment; the default is for local development only.
+    jwt-secret: ${TENANTPULSE_JWT_SECRET:dev-only-secret-change-me-dev-only-secret-change-me}
+    # Off by default. When on, POST /dev/token mints tokens for demos and tests; never enable it in production.
+    dev-token-endpoint-enabled: ${TENANTPULSE_DEV_TOKEN_ENDPOINT:false}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  metrics:
+    tags:
+      application: tenantpulse-server
+
+logging:
+  structured:
+    format:
+      console: logstash
