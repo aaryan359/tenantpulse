@@ -6,7 +6,7 @@ A **config server** stores settings at four levels – `GLOBAL → CLIENT → OF
 **client library** that every other service embeds keeps an in-memory copy. Reads are a memory lookup (no network),
 and a published change reaches every connected client within seconds.
 
-![Architecture](docs/architecture.png)
+![TenantPulse system design](docs/system-design.png)
 
 * Design note with diagrams and the failure-mode table: **[docs/design-note.md](docs/design-note.md)**
 * Java 21, Spring Boot 3.4, Postgres 16, Maven multi-module.
