@@ -6,8 +6,19 @@ A **config server** stores settings at four levels – `GLOBAL → CLIENT → OF
 **client library** that every other service embeds keeps an in-memory copy. Reads are a memory lookup (no network),
 and a published change reaches every connected client within seconds.
 
+![Architecture](docs/architecture.png)
+
 * Design note with diagrams and the failure-mode table: **[docs/design-note.md](docs/design-note.md)**
 * Java 21, Spring Boot 3.4, Postgres 16, Maven multi-module.
+
+## The case study's key points
+
+| Asks | Answer in one line | Where |
+|---|---|---|
+| Consistency model | One writer, bounded staleness, never mixed, never backwards. | [design note §3](docs/design-note.md) |
+| Version 41 after 43 | Ignored: the version never moves back. | `VersionOrderingTest` |
+| Atomic change sets | A change set is applied whole, by swapping one reference. | `ConfigSnapshotConcurrencyTest`, `ClientAtomicityTest` |
+| Prove it | Read 0.18 µs; 200 clients p50 57 ms, p99 258 ms; server killed and recovered. | [Measured performance](#measured-performance), `scripts/kill-the-server-demo.sh` |
 
 ## Run it (one command)
 
@@ -15,7 +26,10 @@ and a published change reaches every connected client within seconds.
 docker compose up --build
 ```
 
-This starts Postgres and the server (http://localhost:8080). For the demo the server runs with a token endpoint switched
+This starts Postgres and the server. Open **http://localhost:8080** for the demo console: change a setting and watch
+the values a service sees update live, stage a rollout, roll back, or kill the server and see reads keep working.
+
+For the demo the server runs with a token endpoint switched
 on; see *Security* below. Prefer to run the server from Maven? Start only the database and the server:
 
 ```bash
@@ -24,38 +38,29 @@ mvn -DskipTests install
 mvn -pl tenantpulse-server spring-boot:run -Dspring-boot.run.arguments=--tenantpulse.security.dev-token-endpoint-enabled=true
 ```
 
-(Port 5436 is used because 5432/5433/5450 were taken on the development machine; change it with `TENANTPULSE_DB_PORT`.)
+(Port 5436 is used if you want to change it then use `TENANTPULSE_DB_PORT`.)
 
-## Try the case study's example with curl
+## Try the example
+
+An operator changes the Bengaluru office's booking cut-off from 60 to 30 minutes; only that office changes.
 
 ```bash
 B=http://localhost:8080
 tok() { curl -s -X POST $B/dev/token -H 'Content-Type: application/json' \
           -d "{\"subject\":\"$1\",\"role\":\"$2\",\"tenant\":\"$3\"}" | sed 's/.*"token":"\([^"]*\)".*/\1/'; }
-OP=$(tok op-ravi OPERATOR acme)          # may change acme's settings
-SVC=$(tok booking-svc SERVICE acme)      # may read acme's settings
+OP=$(tok op-ravi OPERATOR acme)
+SVC=$(tok booking-svc SERVICE acme)
 
-# An operator changes the Bengaluru office's booking cut-off from 60 to 30 minutes
 curl -s -X POST $B/v1/change-sets -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' -d '{
-  "reason": "festival rush", "idempotencyKey": "req-1",
+  "reason": "festival rush",
   "changes": [{"key":"booking.cutoff.minutes","scope":{"level":"OFFICE","clientId":"acme","officeId":"blr"},"value":"30"}]}'
 
-# Bengaluru now resolves to 30 (and says which level supplied it); every other office still uses 60
-curl -s -H "Authorization: Bearer $SVC" "$B/v1/config/booking.cutoff.minutes?office=blr"
-curl -s -H "Authorization: Bearer $SVC" "$B/v1/config/booking.cutoff.minutes?office=pune"
-
-# A bad value is rejected before it is published (HTTP 422, no version used)
-curl -s -X POST $B/v1/change-sets -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' -d '{
-  "reason": "typo", "changes": [{"key":"booking.cutoff.minutes","scope":{"level":"CLIENT","clientId":"acme"},"value":"-30"}]}'
-
-# Staged rollout: two offices first, everyone later
-curl -s -X POST $B/v1/rollouts -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' -d '{
-  "clientId":"acme","offices":["blr","pune"],"changes":[{"key":"booking.cutoff.minutes","value":"20"}],"reason":"pilot"}'
-curl -s -X POST $B/v1/rollouts/<rolloutId>/promote -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' -d '{"reason":"pilot went well"}'
-
-# Roll back to version 1 (add "dryRun":true to preview the diff without changing anything)
-curl -s -X POST $B/v1/rollbacks -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' -d '{"targetVersion":1,"reason":"undo"}'
+curl -s -H "Authorization: Bearer $SVC" "$B/v1/config/booking.cutoff.minutes?office=blr"    # 30
+curl -s -H "Authorization: Bearer $SVC" "$B/v1/config/booking.cutoff.minutes?office=pune"   # still 60
 ```
+
+`scripts/demo-example.sh` runs the full walk-through: this example plus a rejected bad value, tenant isolation, a staged
+rollout with promote, and a rollback with its diff.
 
 ## API
 
@@ -81,6 +86,7 @@ TenantPulseClient client = TenantPulseClient.create(
 client.start();
 
 long cutoff = client.getLong("booking.cutoff.minutes", "blr");        // memory lookup, no network
+
 ResolvedSetting why = client.explain("booking.cutoff.minutes", "blr", null);
 
 ConfigView view = client.view();      // when several settings must agree (a window's start and end),
@@ -91,38 +97,9 @@ It never calls the server on a read, never lets a reader see half of a change se
 keeps serving its last snapshot if the server dies, and starts from a checksummed disk copy when the server is down.
 `client.metrics()` exposes counters (pushes, ignored stale messages, sync failures, reconnects, disk-copy problems).
 
-## Hard rules and the tests that prove them
+## Tests
 
-Run everything with `mvn clean install` (145 tests; the Postgres tests need Docker and skip themselves without it).
-
-| Rule from the case study | Test(s) |
-|---|---|
-| Most specific wins, explain shows the level | `SettingResolverTest`, `ChangeSetApiTest.theExampleFromTheCaseStudy` |
-| Typed values and rules (number, duration, window, enum, list) | `SettingValueTypesTest` |
-| Bad value rejected **before** it is published | `ChangeSetValidatorTest`, `ChangeSetApiTest.aNegativeCutoffIsRejectedBeforeItIsPublished` (no version consumed) |
-| Versions monotonic; author and reason recorded | `ParallelPublishOrderingTest`, `PostgresPublishOrderingTest` (real Postgres), `ChangeSetApiTest` |
-| **Atomic change sets** – no mixed start/end, ever | `ConfigSnapshotConcurrencyTest` (8 readers vs 5,000 change sets), `ClientAtomicityTest` (through the whole client), `ChangeSetApiTest.aChangeSetWithOneBadValueAppliesNothing` |
-| Version 41 after 43 is ignored; never backwards | `VersionOrderingTest`, `ConfigSnapshotTest.versionsOnlyMoveForward` |
-| Push within 5 s; a missed push is healed | `EndToEndPropagationTest` (real server, real client, push only), `MissedPushRecoveryTest` |
-| Reconnect storm | `ReconnectBackoffTest` (jitter), `ResyncLimiterTest`, `ReconnectStormRunner` |
-| Staged rollout, promote later | `StagedRolloutTest` |
-| Instant rollback with a diff | `RollbackTest` |
-| Server down: keep serving, start from disk, catch up after | `ServerDownTest`, `DiskCacheCorruptionTest`, the kill test below |
-| Duplicate, out-of-order, failed messages (failure injection) | `VersionOrderingTest`, `MissedPushRecoveryTest.recoversFromTransientFailuresOnItsOwn`, `ParallelPublishOrderingTest.manyIdenticalRequestsAtOnceCreateExactlyOneVersion`, `PostgresPublishOrderingTest` |
-| Authentication, roles, **tenant isolation** | `AuthenticationTest`, `TenantIsolationTest`, `LivePushTest` (push is per tenant) |
-| No personal data in errors or logs | `ChangeSetApiTest.submittedValuesNeverAppearInResponsesOrLogs` |
-| Dead connections are cleaned up; silent ones are closed | `ConnectionCleanupTest`, `StreamWatchdogTest` |
-
-I checked that the atomicity test can fail: reading the start and end from two separate snapshot lookups makes it fail
-with "a reader saw the new start with the old end".
-
-### Kill-the-server test (real processes)
-
-With the server killed by `kill -9` right after an operator published a change: a running client kept answering from its
-snapshot (`pushConnected=false`); a second client started *while the server was still down* from its disk copy and answered;
-after the server restarted, **both** converged to the change that was made just before the crash. The same sequence runs as
-automated tests in `ServerDownTest` (with a stand-in server that can be switched off) and as a live script using
-`tenantpulse-benchmarks/.../ClientProbe`.
+All 154 tests pass with `mvn clean install` (the Postgres tests need Docker).
 
 ## Measured performance
 
@@ -165,7 +142,7 @@ and the server logged no errors.
 Where it stops scaling: see section 8 of the design note (publishing is serialised by one row lock; every server instance
 holds all tenants in memory; push connections per instance; rollback replays the log).
 
-## Monitoring (the 3 AM counters)
+## Monitoring
 
 `/actuator/prometheus` on the server, in addition to the standard HTTP, JVM and connection-pool metrics:
 
@@ -202,16 +179,6 @@ Full discussion in [the design note](docs/design-note.md). In short:
 * **Assumptions**: setting definitions are code (`SettingCatalog`: booking cut-off, max ride, night window, escort rule, cab types);
   numbers are whole numbers; a time window may wrap past midnight only for settings declared to allow it (the night window does);
   an office id is unique within its client.
-* **Left out deliberately**: definitions in the database, a UI, an identity provider, multi-region, log compaction, Redis/Kafka
+* **Left out deliberately**: definitions in the database, a production UI (only a small demo console is served at `/`), an identity provider, multi-region, log compaction, Redis/Kafka
   fan-out (several server instances already stay in step through Postgres within ~1 s), detection of a server restored from an
   older backup (clients refuse to go backwards and keep serving; a diverged history needs an operator).
-
-## Project layout
-
-```
-tenantpulse-core/        pure Java: types, resolver, validator, immutable snapshot, diff, wire records (no Spring, no DB)
-tenantpulse-server/      Spring Boot: api (controllers) → service (rules) → repository (Postgres / in-memory); security; observability
-tenantpulse-client/      the embeddable library: local snapshot, push + version check, disk copy, backoff with jitter
-tenantpulse-benchmarks/  JMH read benchmark, 200-client propagation runner, reconnect-storm runner, client probe
-docs/design-note.md      architecture, sequence diagram, consistency model, failure-mode table, trade-offs
-```

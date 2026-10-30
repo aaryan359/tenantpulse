@@ -5,45 +5,14 @@ embeds. Reads are answered from memory; changes reach every connected client wit
 
 ## 1. Architecture
 
-```mermaid
-flowchart LR
-    subgraph Operators
-        OP[Operator / Admin<br/>curl, UI]
-    end
+![TenantPulse architecture](system-design.png)
 
-    subgraph Server["TenantPulse server (Spring Boot, stateless)"]
-        API[Controllers<br/>change-sets · rollouts · rollbacks<br/>snapshot · changes · version · stream]
-        SEC[JWT filter +<br/>TenantAccessPolicy]
-        SVC[Services<br/>ChangeSetService · Rollout · Rollback<br/>ConfigReadService]
-        STATE[ConfigStateService<br/>in-memory ConfigSnapshot<br/>+ per-tenant relevant version]
-        BC[ChangeBroadcaster<br/>1-slot queue per connection]
-        CACHE[(Caffeine caches<br/>snapshot · delta)]
-        REPO[ChangeSetRepository]
-        OP --> API
-        API --> SEC --> SVC
-        SVC --> REPO
-        SVC --> STATE
-        SVC --> CACHE
-        STATE --> BC
-    end
-
-    PG[(Postgres<br/>config_version · change_set · setting_change)]
-    REPO --> PG
-    STATE -. "refresh every 1 s<br/>(also catches other instances)" .-> PG
-
-    subgraph Service["Any service (40 of them)"]
-        CL[TenantPulseClient<br/>AtomicReference&lt;ConfigSnapshot&gt;]
-        DISK[(disk copy<br/>checksum + atomic write)]
-        CL --- DISK
-    end
-
-    BC -- "SSE: 'version N exists'" --> CL
-    CL -- "GET /v1/changes?since=V<br/>GET /v1/version every 2 s" --> API
-```
-
-* **Core** (`tenantpulse-core`): plain Java – types, resolution, validation, the immutable snapshot, diff. No Spring, no DB.
-* **Server**: controllers (HTTP only) → services (rules) → repository (storage). Postgres is the only state.
-* **Client**: a local snapshot read with one volatile read; a background synchronizer keeps it current.
+* **Core** (`tenantpulse-core`): the rules every part shares: which level wins, what a valid value is, and the snapshot a
+  change is swapped into. It exists so the server and the client apply identical logic, and so it can be tested without a web server or database.
+* **Server** (`tenantpulse-server`): the one place where a change is checked, saved in order and announced. It exists so
+  clients never decide for themselves what the configuration is.
+* **Client** (`tenantpulse-client`): the library each service embeds. It exists so a read is answered from memory and the
+  copy stays current in the background, with no call to the server on the read path.
 
 ## 2. Data model
 
@@ -65,6 +34,8 @@ reference), so it can be behind but never wrong or mixed; it never moves backwar
 same version hold identical data for their tenant. We deliberately choose availability and latency over strict
 consistency: a client with no server keeps answering from its last good snapshot instead of failing.
 
+![Consistency model](consistency-model.png)
+
 ## 4. Versions only move forward — what a client does with 41 after 43
 
 * A push is only a **hint** ("version N exists"). The client never trusts its content; it fetches `changes?since=<my version>`.
@@ -79,38 +50,7 @@ consistency: a client with no server keeps answering from its last good snapshot
 
 ## 5. The hardest flow: publish and propagate
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Op as Operator
-    participant API as Server API
-    participant Svc as ChangeSetService
-    participant DB as Postgres
-    participant St as ConfigStateService
-    participant BC as ChangeBroadcaster
-    participant C as Client (tenant acme)
-
-    Op->>API: POST /v1/change-sets (token)
-    API->>Svc: publish(caller, changeSet)
-    Svc->>Svc: tenant policy check, validate every value
-    alt a value is invalid
-        Svc-->>Op: 422 with the list of problems (nothing stored, no version used)
-    else valid
-        Svc->>DB: BEGIN; lock config_version row
-        Svc->>DB: idempotency key seen? (if so return the earlier version)
-        Svc->>DB: version = version + 1; insert change_set + setting_change; COMMIT
-        DB-->>Svc: version N (now durable)
-        Svc->>St: refresh() – apply N to the in-memory snapshot
-        St->>BC: notifyChange(N, affected tenants)
-        BC-->>C: SSE event "version N" (only if the change concerns acme)
-        Svc-->>Op: 200 { version: N }
-        C->>API: GET /v1/changes?since=V (V < N)
-        API-->>C: delta (only acme's changes)
-        C->>C: apply whole change set to a NEW snapshot, then swap one reference
-    end
-    Note over C,API: If the push is lost, the 2 s version check (GET /v1/version) finds N and runs the same fetch.
-    Note over DB,BC: Announce only after COMMIT. If the server dies between commit and push, nothing is lost: clients find N by the version check, and a restarted server rebuilds its state from Postgres.
-```
+![Publish and propagate: the hardest flow](sequence-publish-and-propagate.png)
 
 ## 6. Failure modes
 
@@ -179,7 +119,7 @@ beyond that. Measured numbers are in the README.
 * **Several server instances work through Postgres alone** (each refreshes every 1 s and pushes to its own clients), which
   costs up to 1 s extra delay on cross-instance changes. Redis/Kafka fan-out is left out: it would cut that delay but
   add infrastructure, and the version check already guarantees correctness.
-* **Left out on purpose:** setting definitions stored in the database (they are code today); a UI; token issuing (an
+* **Left out on purpose:** setting definitions stored in the database (they are code today); a production UI (only a small demo console is served at `/`); token issuing (an
   identity provider is assumed – the dev token endpoint is off by default); multi-region replication; retention/compaction
   of the log; epoch detection for a server restored from an older backup (clients refuse to go backwards and keep serving,
   but a diverged history needs operator action); a cross-setting rule engine (a night window is one `time_window`
