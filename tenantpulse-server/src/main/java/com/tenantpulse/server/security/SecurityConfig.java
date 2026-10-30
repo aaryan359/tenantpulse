@@ -81,12 +81,12 @@ public class SecurityConfig {
                 .macAlgorithm(MacAlgorithm.HS256).build();
         // Spring tolerates 60 s of clock difference by default; allow a small, explicit amount instead.
         decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
-                new JwtTimestampValidator(CLOCK_SKEW), new JwtIssuerlessClaimsValidator()));
+                new JwtTimestampValidator(CLOCK_SKEW), new RequiredClaimsValidator()));
         return decoder;
     }
 
-    /** A token must name who it is for and what role they hold; a token missing either is never valid. */
-    private static final class JwtIssuerlessClaimsValidator implements OAuth2TokenValidator<Jwt> {
+    /** A token must name its subject and carry an expiry; one missing either is never valid. */
+    private static final class RequiredClaimsValidator implements OAuth2TokenValidator<Jwt> {
         @Override
         public OAuth2TokenValidatorResult validate(Jwt jwt) {
             boolean complete = jwt.getSubject() != null && jwt.getExpiresAt() != null;

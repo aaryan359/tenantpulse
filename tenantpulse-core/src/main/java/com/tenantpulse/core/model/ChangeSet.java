@@ -1,7 +1,6 @@
 package com.tenantpulse.core.model;
 
 import java.util.List;
-import java.util.Objects;
 
 /**
  * A group of changes that are published together under one version: all of them or none.
@@ -19,9 +18,5 @@ public record ChangeSet(String author, String reason, String idempotencyKey, Cha
     /** A plain operator edit. */
     public ChangeSet(String author, String reason, String idempotencyKey, List<SettingChange> changes) {
         this(author, reason, idempotencyKey, ChangeKind.PUBLISH, null, changes);
-    }
-
-    public ChangeSet withChanges(List<SettingChange> newChanges) {
-        return new ChangeSet(author, reason, idempotencyKey, kind, refVersion, Objects.requireNonNull(newChanges));
     }
 }

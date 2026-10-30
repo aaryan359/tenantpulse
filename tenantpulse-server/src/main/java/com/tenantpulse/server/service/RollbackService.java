@@ -37,12 +37,9 @@ public class RollbackService {
 
     public Result rollback(Caller caller, long targetVersion, String clientId, String reason, boolean dryRun,
                            String idempotencyKey) {
+        // An operator can only roll back their own tenant; an admin can name one client or leave it open for all.
         String scopedClient = caller.isAdmin() ? blankToNull(clientId) : caller.tenantId();
-        if (scopedClient != null) {
-            policy.requireCanChangeClient(caller, scopedClient);
-        } else {
-            policy.requireCanChangeClient(caller, caller.tenantId());
-        }
+        policy.requireCanChangeClient(caller, scopedClient);
 
         ConfigSnapshot current = state.snapshot();
         if (targetVersion < 0 || targetVersion >= current.version()) {

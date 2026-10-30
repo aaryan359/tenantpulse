@@ -2,10 +2,8 @@ package com.tenantpulse.client;
 
 import com.tenantpulse.core.resolve.ResolvedSetting;
 import com.tenantpulse.core.snapshot.ConfigSnapshot;
-import com.tenantpulse.core.type.TimeWindow;
 
 import java.time.Duration;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.random.RandomGenerator;
@@ -132,22 +130,6 @@ public final class TenantPulseClient implements AutoCloseable {
 
     public long getLong(String key, String officeId) {
         return view().getLong(key, officeId);
-    }
-
-    public Duration getDuration(String key, String officeId) {
-        return view().getDuration(key, officeId);
-    }
-
-    public TimeWindow getTimeWindow(String key, String officeId) {
-        return view().getTimeWindow(key, officeId);
-    }
-
-    public String getString(String key, String officeId) {
-        return view().getString(key, officeId);
-    }
-
-    public List<String> getList(String key, String officeId) {
-        return view().getList(key, officeId);
     }
 
     public ResolvedSetting explain(String key, String officeId, String shiftId) {
