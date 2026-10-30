@@ -1,0 +1,9 @@
+# Prometheus reads the server's metrics endpoint every 5 seconds. UI: http://localhost:9090
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: tenantpulse
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["server:8080"]

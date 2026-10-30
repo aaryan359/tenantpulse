@@ -44,5 +44,18 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  # Monitoring UI: http://localhost:9090 (Status > Targets shows the server as UP; try the queries in the README)
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: tenantpulse-prometheus
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=2d"]
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    depends_on:
+      - server
+    restart: unless-stopped
+
 volumes:
   tenantpulse-pgdata:

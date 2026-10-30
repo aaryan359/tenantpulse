@@ -26,7 +26,7 @@ and a published change reaches every connected client within seconds.
 docker compose up --build
 ```
 
-This starts Postgres and the server. Open **http://localhost:8080** for the demo console: change a setting and watch
+This starts Postgres, the server and Prometheus. Open **http://localhost:8080** for the demo console: change a setting and watch
 the values a service sees update live, stage a rollout, roll back, or kill the server and see reads keep working.
 
 For the demo the server runs with a token endpoint switched
@@ -155,6 +155,17 @@ holds all tenants in memory; push connections per instance; rollback replays the
 | `tenantpulse_sse_connections`, `..._queue_depth`, `..._notifications_total`, `..._send_failed_total`, `..._rejected_total` | Push health: connections, **queue depth**, failures, refusals at the cap |
 | `tenantpulse_errors_total{type=...}` | **Error rate** by kind (rejected, forbidden, unauthenticated, bad_request, internal…) |
 | `tenantpulse_refresh_failed_total` | Could the server read storage? |
+
+Prometheus starts with the stack and scrapes that endpoint every 5 seconds. Open its UI at **http://localhost:9090**
+(`Status > Targets` shows the server as UP) and try these queries:
+
+| Query | Shows |
+|---|---|
+| `tenantpulse_publish_total` | Accepted, duplicate and rejected publishes |
+| `rate(tenantpulse_publish_total[1m])` | Publishes per second |
+| `tenantpulse_sse_connections` | Clients currently connected for live push |
+| `tenantpulse_errors_total` | Errors by kind (rejected, forbidden, unauthenticated...) |
+| `tenantpulse_config_version` | The newest version the server holds |
 
 Logs are structured JSON (one object per line) and carry ids only: no values, emails, phone numbers or locations. The client
 library exposes its own counters through `client.metrics()` for the host service to export.
