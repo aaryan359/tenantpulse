@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TenantPulse demo console</title>
+<style>
+  :root { --ink:#1e293b; --muted:#64748b; --line:#e2e8f0; --bg:#f8fafc; --ok:#16a34a; --bad:#dc2626; --blue:#2563eb; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color:var(--ink); background:var(--bg); }
+  header { display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:12px 24px; background:#fff; border-bottom:1px solid var(--line); }
+  h1 { font-size:18px; margin:0; }
+  h2 { font-size:15px; margin:0 0 10px; }
+  .spacer { flex:1; }
+  .muted { color:var(--muted); font-size:13px; }
+  .pill { padding:2px 10px; border-radius:999px; font-size:13px; background:#e2e8f0; }
+  .pill.ok { background:#dcfce7; color:#166534; } .pill.bad { background:#fee2e2; color:#991b1b; }
+  #banner { padding:10px 24px; background:#fee2e2; color:#991b1b; font-weight:600; }
+  main { display:grid; grid-template-columns:minmax(320px, 420px) 1fr; gap:16px; padding:16px 24px; }
+  .panel { background:#fff; border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .wide { grid-column:1 / -1; }
+  label { display:block; margin:8px 0 2px; font-size:13px; color:var(--muted); }
+  input, select, button { font:inherit; padding:6px 8px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; }
+  input, select { width:100%; }
+  button { cursor:pointer; background:var(--blue); border-color:var(--blue); color:#fff; }
+  button.plain { background:#fff; color:var(--ink); border-color:#cbd5e1; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .row { display:flex; gap:8px; align-items:flex-end; } .row > * { flex:1; }
+  .buttons { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .buttons button { flex:0 0 auto; }
+  hr { border:0; border-top:1px solid var(--line); margin:14px 0; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px; margin:10px 0; }
+  .card { border:1px solid var(--line); border-radius:10px; padding:10px 12px; background:#fff; }
+  .card b { font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+  .card .v { font-size:30px; font-weight:700; line-height:1.1; margin:4px 0; }
+  .badge { display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; background:#e2e8f0; }
+  .badge.OFFICE { background:#dbeafe; color:#1e40af; } .badge.SHIFT { background:#ede9fe; color:#5b21b6; }
+  .badge.CLIENT { background:#fef3c7; color:#92400e; } .badge.GLOBAL { background:#dcfce7; color:#166534; }
+  @keyframes flash { from { background:#bbf7d0; } to { background:#fff; } }
+  .card.flash { animation:flash 1.4s ease-out; }
+  pre { margin:0; padding:10px; background:#0f172a; color:#e2e8f0; border-radius:8px; max-height:260px; overflow:auto; font-size:13px; white-space:pre-wrap; }
+  ol { margin:0; padding:0; list-style:none; max-height:240px; overflow:auto; font:13px/1.6 ui-monospace, Menlo, monospace; }
+  ol li span { color:var(--muted); margin-right:8px; } ol li.good { color:#166534; } ol li.bad { color:#991b1b; } ol li.push { color:#1d4ed8; }
+</style>
+</head>
+<body>
+<header>
+  <h1>TenantPulse demo console</h1>
+  <span id="status" class="pill">signed out</span>
+  <span id="where" class="muted"></span>
+  <span class="spacer"></span>
+  <label style="margin:0">Tenant <input id="tenant" value="acme" size="10" style="width:auto"></label>
+  <button id="signin">Sign in (demo token)</button>
+</header>
+<div id="banner" hidden></div>
+
+<main>
+  <section class="panel">
+    <h2>Operator: change a setting</h2>
+    <label for="key">Setting</label>
+    <select id="key"></select>
+    <div class="row">
+      <div><label for="level">Level</label>
+        <select id="level"><option>OFFICE</option><option>CLIENT</option><option>SHIFT</option></select></div>
+      <div><label for="office">Office</label><input id="office" value="blr"></div>
+      <div><label for="shift">Shift</label><input id="shift" placeholder="night"></div>
+    </div>
+    <label for="value">Value <span id="hint" class="muted"></span></label>
+    <input id="value" value="30">
+    <label for="reason">Reason</label>
+    <input id="reason" value="festival rush">
+    <div class="buttons"><button id="publish" disabled>Publish</button></div>
+    <hr>
+    <h2>Staged rollout</h2>
+    <label for="offices">Offices to try first</label>
+    <input id="offices" value="blr,pune">
+    <div class="buttons">
+      <button id="stage" class="plain" disabled>Stage on these offices</button>
+      <button id="promote" class="plain" disabled>Promote to everyone</button>
+    </div>
+    <hr>
+    <h2>Rollback</h2>
+    <label for="target">Roll back to version</label>
+    <input id="target" type="number" min="0" placeholder="e.g. 1">
+    <div class="buttons">
+      <button id="preview" class="plain" disabled>Preview the diff</button>
+      <button id="rollback" class="plain" disabled>Roll back</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>What a service sees <span class="muted">(read from its own memory, no call to the server)</span></h2>
+    <div class="row">
+      <div><label for="watch">Setting</label><select id="watch"></select></div>
+      <div><label for="watchShift">Shift (optional)</label><input id="watchShift" placeholder="night"></div>
+    </div>
+    <div id="cards" class="cards"></div>
+    <div class="muted" id="info"></div>
+  </section>
+
+  <section class="panel wide"><h2>Request and response</h2><pre id="result">Sign in, then publish a change.</pre></section>
+  <section class="panel wide"><h2>Live log</h2><ol id="log"></ol></section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const OFFICES = ['blr', 'pune', 'mumbai', 'delhi'];
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+let session = null;      // { token, tenant, abort }
+let snap = null;         // the local copy: { version, definitions, overrides }
+let online = false, pushUp = false, lastContact = 0;
+let pending = null;      // a change published from this page, timed until it is visible
+let lastRollout = null;
+let pulling = Promise.resolve();
+
+// ---------------------------------------------------------------- small helpers
+function log(message, cls) {
+  const li = document.createElement('li');
+  if (cls) li.className = cls;
+  const t = document.createElement('span');
+  t.textContent = new Date().toISOString().slice(11, 23);
+  li.append(t, message);
+  $('log').prepend(li);
+}
+
+function show(method, path, body, status, response) {
+  const lines = [method + ' ' + path];
+  if (body !== undefined) lines.push(JSON.stringify(body, null, 2));
+  lines.push('', 'HTTP ' + status, JSON.stringify(response, null, 2));
+  $('result').textContent = lines.join('\n');
+}
+
+const auth = () => ({ Authorization: 'Bearer ' + session.token });
+
+async function call(method, path, body) {
+  const res = await fetch(path, {
+    method,
+    headers: { ...auth(), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const json = await res.json().catch(() => ({}));
+  show(method, path, body, res.status, json);
+  return { ok: res.ok, status: res.status, json };
+}
+
+const sameScope = (a, b) => a.level === b.level && a.clientId === b.clientId
+  && a.officeId === b.officeId && a.shiftId === b.shiftId;
+
+// ---------------------------------------------------------------- the local copy (what the client library does)
+function resolve(key, office, shift) {
+  const def = snap.definitions.find((d) => d.key === key);
+  const tenant = session.tenant;
+  const chain = [];
+  if (shift) chain.push(['SHIFT', (s) => s.level === 'SHIFT' && s.clientId === tenant && s.officeId === office && s.shiftId === shift]);
+  chain.push(['OFFICE', (s) => s.level === 'OFFICE' && s.clientId === tenant && s.officeId === office]);
+  chain.push(['CLIENT', (s) => s.level === 'CLIENT' && s.clientId === tenant]);
+  chain.push(['GLOBAL', (s) => s.level === 'GLOBAL']);
+  const mine = snap.overrides.filter((o) => o.key === key);
+  for (const [level, matches] of chain) {
+    const hit = mine.find((o) => matches(o.scope));
+    if (hit) return { value: hit.value, level, version: hit.version };
+  }
+  return { value: def.defaultValue, level: 'GLOBAL', version: 0, isDefault: true };
+}
+
+function applyChanges(resp) {
+  const base = snap.version;
+  let overrides = snap.overrides;
+  for (const cs of resp.changeSets) {
+    if (cs.version <= base) continue;                       // old or duplicate: ignored
+    for (const c of cs.changes) {
+      overrides = overrides.filter((o) => !(o.key === c.key && sameScope(o.scope, c.scope)));
+      if (c.value !== null) overrides.push({ key: c.key, scope: c.scope, value: c.value, version: cs.version });
+    }
+  }
+  // the whole change is installed in one assignment, like the client library's single reference swap
+  snap = { ...snap, overrides, version: Math.max(base, resp.toVersion) };
+}
+
+async function loadSnapshot() {
+  const res = await fetch('/v1/snapshot', { headers: auth() });
+  if (!res.ok) throw new Error('snapshot: HTTP ' + res.status);
+  const first = snap === null;
+  const loaded = await res.json();
+  if (snap && loaded.version < snap.version) return;        // never move backwards
+  snap = loaded;
+  if (first) fillSettings();
+  log('loaded snapshot v' + snap.version, 'good');
+}
+
+function pull() {
+  pulling = pulling.then(async () => {
+    const before = snap.version;
+    const res = await fetch('/v1/changes?since=' + before, { headers: auth() });
+    if (!res.ok) throw new Error('changes: HTTP ' + res.status);
+    const resp = await res.json();
+    if (resp.fullSnapshotRequired) return loadSnapshot();
+    applyChanges(resp);
+    if (snap.version !== before) {
+      log('pulled changes since v' + before + ' (' + resp.changeSets.length + ' change set(s)); now v' + snap.version, 'good');
+    }
+    markOnline();
+    render();
+  }).catch(() => markOffline());
+}
+
+// ---------------------------------------------------------------- staying current: push plus a check every 2 s
+function onPush(version) {
+  if (version <= snap.version) { log('push v' + version + ' ignored (not newer than v' + snap.version + ')'); return; }
+  log('push received: version ' + version + ' exists', 'push');
+  pull();
+}
+
+async function streamLoop(abort) {
+  let delay = 500;
+  while (!abort.signal.aborted) {
+    try {
+      const res = await fetch('/v1/stream', { headers: auth(), signal: abort.signal });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      setPush(true); delay = 500;
+      const reader = res.body.getReader(), decoder = new TextDecoder();
+      let buffer = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let i;
+        while ((i = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, i).trim();
+          buffer = buffer.slice(i + 1);
+          if (line.startsWith('data:')) onPush(parseInt(line.slice(5), 10));
+        }
+      }
+    } catch (e) { /* retry below */ }
+    setPush(false);
+    if (abort.signal.aborted) return;
+    await sleep(delay + Math.random() * delay);              // backoff with jitter
+    delay = Math.min(delay * 2, 8000);
+  }
+}
+
+async function check(abort) {
+  while (!abort.signal.aborted) {
+    try {
+      const res = await fetch('/v1/version', { headers: { ...auth(), 'X-Client-Version': snap.version }, signal: abort.signal });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const v = await res.json();
+      markOnline();
+      if (v.relevant > snap.version) { log('version check found v' + v.relevant, 'push'); pull(); }
+    } catch (e) { if (!abort.signal.aborted) markOffline(); }
+    await sleep(2000 + Math.random() * 200);
+  }
+}
+
+function markOnline() {
+  lastContact = Date.now();
+  if (!online) { online = true; log('server reachable: in sync at v' + snap.version, 'good'); pull(); }
+  renderStatus();
+}
+function markOffline() {
+  if (online) log('server unreachable: still answering from the local copy (v' + snap.version + ')', 'bad');
+  online = false; renderStatus();
+}
+function setPush(up) { pushUp = up; renderStatus(); }
+
+// ---------------------------------------------------------------- drawing
+function renderStatus() {
+  const pill = $('status');
+  if (!session) { pill.textContent = 'signed out'; pill.className = 'pill'; return; }
+  pill.textContent = (online ? 'server up' : 'server down') + ' · push ' + (pushUp ? 'connected' : 'off') + ' · v' + snap.version;
+  pill.className = 'pill ' + (online ? 'ok' : 'bad');
+  const banner = $('banner');
+  banner.hidden = online;
+  banner.textContent = 'Server unreachable. Reads still work: this page keeps answering from its local copy (v' + snap.version + ').';
+}
+
+function render() {
+  if (!snap) return;
+  const key = $('watch').value, shift = $('watchShift').value.trim() || null;
+  const box = $('cards');
+  if (box.children.length !== OFFICES.length) {
+    box.replaceChildren(...OFFICES.map((o) => {
+      const d = document.createElement('div'); d.className = 'card'; d.dataset.office = o; return d;
+    }));
+  }
+  for (const card of box.children) {
+    const r = resolve(key, card.dataset.office, shift);
+    const signature = r.value + '|' + r.level + '|' + r.version;
+    if (card.dataset.sig && card.dataset.sig !== signature) {
+      card.classList.remove('flash'); void card.offsetWidth; card.classList.add('flash');
+    }
+    card.dataset.sig = signature;
+    const label = document.createElement('b'); label.textContent = card.dataset.office;
+    const value = document.createElement('div'); value.className = 'v'; value.textContent = r.value;
+    const badge = document.createElement('span');
+    badge.className = 'badge ' + r.level; badge.textContent = r.isDefault ? 'default' : r.level + ' · v' + r.version;
+    card.replaceChildren(label, value, badge);
+  }
+  $('info').textContent = 'Local copy at version ' + snap.version + '. Each card is resolved like the client library does: shift, then office, then client, then global.';
+  if (pending && snap.version >= pending.version) {
+    log('change v' + pending.version + ' visible after ' + Math.round(performance.now() - pending.t0) + ' ms', 'good');
+    pending = null;
+  }
+  renderStatus();
+}
+
+function hint(def) {
+  const p = def.params;
+  switch (def.kind) {
+    case 'number': return '(whole number ' + p.min + ' to ' + p.max + ')';
+    case 'duration': return '(ISO duration such as PT30M)';
+    case 'time_window': return '(HH:mm-HH:mm, e.g. 22:00-06:00)';
+    case 'enum': return '(one of ' + p.allowed.split(',').join(', ') + ')';
+    default: return '(comma separated' + (p.allowed ? ': ' + p.allowed : '') + ')';
+  }
+}
+
+function fillSettings() {
+  for (const id of ['key', 'watch']) {
+    $(id).replaceChildren(...snap.definitions.map((d) => new Option(d.key, d.key)));
+  }
+  $('key').value = $('watch').value = 'booking.cutoff.minutes';
+  updateHint();
+}
+function updateHint() {
+  const def = snap.definitions.find((d) => d.key === $('key').value);
+  $('hint').textContent = def ? hint(def) : '';
+}
+
+// ---------------------------------------------------------------- actions
+function scopeFor(level) {
+  const scope = { level, clientId: session.tenant };
+  if (level !== 'CLIENT') scope.officeId = $('office').value.trim();
+  if (level === 'SHIFT') scope.shiftId = $('shift').value.trim();
+  return scope;
+}
+
+async function publish() {
+  const body = {
+    reason: $('reason').value,
+    changes: [{ key: $('key').value, scope: scopeFor($('level').value), value: $('value').value }],
+  };
+  const t0 = performance.now();
+  const r = await call('POST', '/v1/change-sets', body);
+  if (r.ok) { pending = { version: r.json.version, t0 }; log('published: server saved version ' + r.json.version); }
+  else log('rejected (HTTP ' + r.status + '): ' + (r.json.message || r.json.error), 'bad');
+}
+
+async function stage() {
+  const offices = $('offices').value.split(',').map((s) => s.trim()).filter(Boolean);
+  const body = { clientId: session.tenant, offices, reason: $('reason').value,
+                 changes: [{ key: $('key').value, value: $('value').value }] };
+  const t0 = performance.now();
+  const r = await call('POST', '/v1/rollouts', body);
+  if (r.ok) { lastRollout = r.json.rolloutId; pending = { version: r.json.version, t0 };
+              $('promote').textContent = 'Promote rollout #' + lastRollout; log('staged on ' + offices.join(', ') + ' (rollout #' + lastRollout + ')'); }
+  else log('rejected (HTTP ' + r.status + '): ' + (r.json.message || r.json.error), 'bad');
+}
+
+async function promote() {
+  if (lastRollout === null) { log('stage a rollout first', 'bad'); return; }
+  const t0 = performance.now();
+  const r = await call('POST', '/v1/rollouts/' + lastRollout + '/promote', { reason: 'promote to everyone' });
+  if (r.ok) { pending = { version: r.json.version, t0 }; log('promoted rollout #' + lastRollout + ' to the whole client'); }
+  else log('rejected (HTTP ' + r.status + '): ' + (r.json.message || r.json.error), 'bad');
+}
+
+async function rollback(dryRun) {
+  const body = { targetVersion: Number($('target').value), reason: 'demo rollback', dryRun };
+  const t0 = performance.now();
+  const r = await call('POST', '/v1/rollbacks', body);
+  if (!r.ok) { log('rejected (HTTP ' + r.status + '): ' + (r.json.message || r.json.error), 'bad'); return; }
+  if (dryRun) log('preview: ' + r.json.diff.length + ' override(s) would change');
+  else if (r.json.newVersion) { pending = { version: r.json.newVersion, t0 }; log('rolled back to v' + body.targetVersion + ' as new version ' + r.json.newVersion); }
+  else log('nothing to roll back');
+}
+
+async function signIn() {
+  if (session) session.abort.abort();
+  const tenant = $('tenant').value.trim();
+  const res = await fetch('/dev/token', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ subject: 'demo-operator', role: 'OPERATOR', tenant }) });
+  if (!res.ok) { log('could not get a demo token (is TENANTPULSE_DEV_TOKEN_ENDPOINT on?)', 'bad'); return; }
+  session = { token: (await res.json()).token, tenant, abort: new AbortController() };
+  snap = null; online = true; pending = null;
+  await loadSnapshot();
+  $('where').textContent = 'signed in as operator of "' + tenant + '"';
+  for (const id of ['publish', 'stage', 'promote', 'preview', 'rollback']) $(id).disabled = false;
+  render();
+  streamLoop(session.abort);
+  check(session.abort);
+  setInterval(() => session && renderStatus(), 1000);
+}
+
+$('signin').onclick = () => signIn().catch((e) => log('sign-in failed: ' + e.message, 'bad'));
+$('publish').onclick = publish;
+$('stage').onclick = stage;
+$('promote').onclick = promote;
+$('preview').onclick = () => rollback(true);
+$('rollback').onclick = () => rollback(false);
+$('key').onchange = updateHint;
+$('watch').onchange = $('watchShift').oninput = render;
+
+const tenantParam = new URLSearchParams(location.search).get('tenant');
+if (tenantParam) { $('tenant').value = tenantParam; $('signin').click(); }   // ?tenant=acme signs in straight away
+</script>
+</body>
+</html>
